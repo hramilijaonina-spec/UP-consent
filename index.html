@@ -1135,21 +1135,33 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
       [$("f_city").value.trim(), $("f_state").value.trim(), $("f_zip").value.trim()].filter(Boolean).join(", ")];
     return parts.filter(Boolean).join("\n") || "\u2014";
   }
-  function fallbackDeliver(blob, name){
-    // Standalone file / normal browser: open the PDF (view/print/save) or download.
+  function anchorDownload(blob, name){
     try{
       var url=(window.URL||window.webkitURL).createObjectURL(blob);
-      var isTouch=("ontouchstart" in window)||(navigator.maxTouchPoints>0);
-      var opened=null;
-      if(isTouch){ opened=window.open(url,"_blank"); }
-      if(!opened){
-        var a=document.createElement("a"); a.href=url; a.download=name;
-        document.body.appendChild(a); a.click();
-        setTimeout(function(){ try{a.parentNode.removeChild(a);}catch(e){} }, 500);
-      }
+      var a=document.createElement("a"); a.href=url; a.download=name; a.rel="noopener";
+      document.body.appendChild(a); a.click();
+      setTimeout(function(){ try{a.parentNode.removeChild(a);}catch(e){} }, 800);
       setTimeout(function(){ try{(window.URL||window.webkitURL).revokeObjectURL(url);}catch(e){} }, 60000);
       updateMsg(true);
     }catch(e){ showDiag("save error: "+(e&&e.message?e.message:e)); }
+  }
+  function fallbackDeliver(blob, name){
+    // Prefer the native share sheet with a NAMED file (fixes iOS "UNKNOWN" filename).
+    try{
+      if(typeof File==="function" && navigator.canShare){
+        var file=new File([blob], name, {type:"application/pdf"});
+        if(navigator.canShare({files:[file]})){
+          navigator.share({files:[file], title:name})
+            .then(function(){ updateMsg(true); })
+            .catch(function(err){
+              if(err && (err.name==="AbortError")) { updateMsg(true); return; } // user closed sheet
+              anchorDownload(blob, name);
+            });
+          return;
+        }
+      }
+    }catch(e){ /* fall through to download */ }
+    anchorDownload(blob, name);
   }
   function capacitorDeliver(blob, name){
     // Native app (Capacitor): write to cache then open the iOS share sheet (save / print / share).
@@ -1221,8 +1233,9 @@ function(t){t.__bidiEngine__=t.prototype.__bidiEngine__=function(t){var r,n,i,a,
     var sg=sigURL(); data.sigDataUrl=sg.url; data.sigW=sg.w; data.sigH=sg.h;
     try{
       var doc=gen(lib, data);
-      var safe=(first+"_"+last).replace(/[^\w\-]+/g,"_")||"subject";
-      var name="Consent_"+rep(settings.project," ","_")+"_"+safe+"_"+rep(todayStr(),"/","-")+".pdf";
+      var safe=(first+(last?("_"+last):"")).replace(/[^\w\-]+/g,"_")||"subject";
+      var proj=rep(settings.project," ","_").replace(/[^\w\-]+/g,"_")||"Project";
+      var name=proj+"_"+safe+"_Consent_"+rep(todayStr(),"/","-")+".pdf";
       var blob=doc.output("blob");
       deliverPDF(blob, name);
     }catch(err){ showDiag("PDF error: "+(err&&err.message?err.message:err)); }
